@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { ChapterNavigation } from '@/components/ChapterNavigation';
@@ -7,12 +7,16 @@ import { VerseOfDay } from '@/components/VerseOfDay';
 import { FloatingActions } from '@/components/FloatingActions';
 import { ReadingProgressCard } from '@/components/ReadingProgressCard';
 import { LoadingScreen } from '@/components/LoadingScreen';
+import { SearchDialog } from '@/components/SearchDialog';
+import { BookmarksDialog } from '@/components/BookmarksDialog';
+import { AudioPlayer } from '@/components/AudioPlayer';
 import { useIndexedDB } from '@/hooks/useIndexedDB';
 import { useBibleData } from '@/hooks/useBibleData';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { useSearch } from '@/hooks/useSearch';
+import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { FontSizeProvider } from '@/contexts/FontSizeContext';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { AlertCircle, BookOpen } from 'lucide-react';
 import type { BookMetadata, Bookmark, ReadingProgress } from '@/types/bible';
 
@@ -23,6 +27,8 @@ function BibleApp() {
   const [selectedVerse, setSelectedVerse] = useState<number | null>(null);
   const [bookmarks, setBookmarks] = useLocalStorage<Bookmark[]>('bookmarks', []);
   const [readingProgress, setReadingProgress] = useLocalStorage<ReadingProgress | null>('readingProgress', null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
 
   const { dbService, isInitialized } = useIndexedDB();
   
@@ -31,6 +37,19 @@ function BibleApp() {
     language: selectedLanguage,
     selectedBook
   });
+
+  const { results, isSearching, searchQuery, search, clearSearch } = useSearch({
+    dbService,
+    books,
+    language: selectedLanguage,
+  });
+
+  const tts = useTextToSpeech({ language: selectedLanguage });
+
+  // Stop TTS when chapter or book changes
+  useEffect(() => {
+    tts.stop();
+  }, [selectedBook, currentChapter]);
 
   // Save reading progress
   useEffect(() => {
@@ -50,6 +69,7 @@ function BibleApp() {
     setSelectedBook(null);
     setCurrentChapter(1);
     setSelectedVerse(null);
+    tts.stop();
   };
 
   const handleBookChange = (book: BookMetadata) => {
@@ -61,7 +81,6 @@ function BibleApp() {
   const handleChapterChange = (chapter: number) => {
     setCurrentChapter(chapter);
     setSelectedVerse(null);
-    // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -79,6 +98,33 @@ function BibleApp() {
     setSelectedBook(book);
     setCurrentChapter(chapter);
   };
+
+  const handleSearchResultClick = useCallback((bookId: string, chapter: number, verse: number) => {
+    const book = books.find(b => b.id === bookId);
+    if (book) {
+      setSelectedBook(book);
+      setCurrentChapter(chapter);
+      setSelectedVerse(verse);
+    }
+  }, [books]);
+
+  const handleBookmarkNavigate = useCallback((bookId: string, chapter: number, verse: number) => {
+    const book = books.find(b => b.id === bookId);
+    if (book) {
+      setSelectedBook(book);
+      setCurrentChapter(chapter);
+      setSelectedVerse(verse);
+    }
+  }, [books]);
+
+  const handleDeleteBookmark = useCallback((bookmark: Bookmark) => {
+    setBookmarks(prev => prev.filter(b => !(
+      b.language === bookmark.language && 
+      b.book === bookmark.book && 
+      b.chapter === bookmark.chapter && 
+      b.verse === bookmark.verse
+    )));
+  }, [setBookmarks]);
 
   const toggleBookmark = () => {
     if (!selectedBook || !selectedVerse || !bookData) return;
@@ -116,6 +162,12 @@ function BibleApp() {
     }
   };
 
+  const handlePlayChapter = useCallback(() => {
+    if (!bookData || !currentChapterData) return;
+    const texts = currentChapterData.verses.map(v => `Verse ${v.verse}. ${v.text}`);
+    tts.speak(texts);
+  }, [bookData, currentChapter, tts]);
+
   if (!isInitialized) {
     return <LoadingScreen />;
   }
@@ -148,6 +200,9 @@ function BibleApp() {
         languages={languages}
         selectedLanguage={selectedLanguage}
         onLanguageChange={handleLanguageChange}
+        onOpenSearch={() => setSearchOpen(true)}
+        onOpenBookmarks={() => setBookmarksOpen(true)}
+        bookmarksCount={bookmarks.length}
         sidebarContent={sidebarContent}
       />
 
@@ -223,11 +278,27 @@ function BibleApp() {
                       onChapterChange={handleChapterChange}
                     />
 
+                    {/* Audio Player */}
+                    <div className="mb-6">
+                      <AudioPlayer
+                        isPlaying={tts.isPlaying}
+                        isPaused={tts.isPaused}
+                        isSupported={tts.isSupported}
+                        currentIndex={tts.currentIndex}
+                        verses={currentChapterData.verses}
+                        onPlay={handlePlayChapter}
+                        onPause={tts.pause}
+                        onResume={tts.resume}
+                        onStop={tts.stop}
+                      />
+                    </div>
+
                     {/* Verses */}
                     <VerseViewer
                       verses={currentChapterData.verses}
                       selectedVerse={selectedVerse}
                       onVerseClick={handleVerseClick}
+                      highlightedVerses={tts.isPlaying && tts.currentIndex >= 0 ? [currentChapterData.verses[tts.currentIndex]?.verse] : []}
                     />
 
                     {/* Bottom chapter navigation */}
@@ -262,6 +333,28 @@ function BibleApp() {
         onToggleBookmark={toggleBookmark}
         selectedVerseText={selectedVerseData?.text}
         verseReference={verseReference}
+      />
+
+      {/* Search Dialog */}
+      <SearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        results={results}
+        isSearching={isSearching}
+        searchQuery={searchQuery}
+        onSearch={search}
+        onResultClick={handleSearchResultClick}
+        onClear={clearSearch}
+      />
+
+      {/* Bookmarks Dialog */}
+      <BookmarksDialog
+        open={bookmarksOpen}
+        onOpenChange={setBookmarksOpen}
+        bookmarks={bookmarks}
+        books={books}
+        onDeleteBookmark={handleDeleteBookmark}
+        onNavigate={handleBookmarkNavigate}
       />
     </div>
   );

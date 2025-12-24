@@ -1,4 +1,4 @@
-import { Book, ChevronLeft, ChevronRight, Menu, Moon, Sun, Bookmark, BookOpen, Type, Minus, Plus, X } from 'lucide-react';
+import { Book, Menu, Moon, Sun, Type, Minus, Plus, Search, Bookmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useFontSize } from '@/contexts/FontSizeContext';
@@ -25,6 +25,9 @@ interface HeaderProps {
   languages: Language[];
   selectedLanguage: string;
   onLanguageChange: (lang: string) => void;
+  onOpenSearch: () => void;
+  onOpenBookmarks: () => void;
+  bookmarksCount: number;
   sidebarContent?: React.ReactNode;
 }
 
@@ -32,6 +35,9 @@ export function Header({
   languages, 
   selectedLanguage, 
   onLanguageChange,
+  onOpenSearch,
+  onOpenBookmarks,
+  bookmarksCount,
   sidebarContent 
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
@@ -64,10 +70,35 @@ export function Header({
         </div>
 
         {/* Right: Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* Search button */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-9 w-9"
+            onClick={onOpenSearch}
+          >
+            <Search className="h-4 w-4" />
+          </Button>
+
+          {/* Bookmarks button */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-9 w-9 relative"
+            onClick={onOpenBookmarks}
+          >
+            <Bookmark className="h-4 w-4" />
+            {bookmarksCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                {bookmarksCount > 9 ? '9+' : bookmarksCount}
+              </span>
+            )}
+          </Button>
+
           {/* Language selector */}
           <Select value={selectedLanguage} onValueChange={onLanguageChange}>
-            <SelectTrigger className="w-[130px] h-9 text-sm">
+            <SelectTrigger className="w-[100px] sm:w-[130px] h-9 text-sm">
               <SelectValue placeholder="Language" />
             </SelectTrigger>
             <SelectContent>
@@ -82,7 +113,7 @@ export function Header({
           {/* Font size control */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-9 w-9">
+              <Button variant="ghost" size="icon" className="h-9 w-9 hidden sm:flex">
                 <Type className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
